@@ -177,5 +177,5 @@ func emitRes(writer io.Writer, urlstub string, restype string, resname string, r
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Fprintf(writer, "%s\n", tpack)
+	writer.Write(tpack)
 }
