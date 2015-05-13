@@ -8,9 +8,9 @@ import (
 	_ "github.com/lib/pq"
 	"io"
 	"log"
-	"os"
-	"reflect"
+	"net"
 	"strconv"
+	"strings"
 )
 
 // Track is the structure of information for one track.
@@ -22,77 +22,6 @@ type Track struct {
 	RecordTitle  string `res:"record_title"`
 	RecordArtist string `res:"record_artist"`
 	RecentPlays  uint64 `res:"recent_plays"`
-}
-
-// Resource is a structure containing the path, type, and value of a RES response.
-type Resource struct {
-	path  string
-	rtype string
-	value string
-}
-
-func toResource(url string, item interface{}) []Resource {
-	val := reflect.ValueOf(item)
-	typ := reflect.TypeOf(item)
-
-	switch val.Kind() {
-	case reflect.Struct:
-		return structToResource(url, val, typ)
-	case reflect.Array, reflect.Slice:
-		return sliceToResource(url, val, typ)
-	default:
-		return []Resource{Resource{url, "entry", fmt.Sprint(item)}}
-	}
-}
-
-func structToResource(url string, val reflect.Value, typ reflect.Type) []Resource {
-	nf := val.NumField()
-	af := nf
-
-	// First, announce the incoming directory.
-	// We'll fix the value later.
-	res := []Resource{Resource{url, "directory", "?"}}
-
-	// Now, recursively work out the fields.
-	for i := 0; i < nf; i++ {
-		fieldt := typ.Field(i)
-
-		// We can't announce fields that aren't exported.
-		// If this one isn't, knock one off the available fields and ignore it.
-		if fieldt.PkgPath != "" {
-			af--
-			continue
-		}
-
-		// Work out the resource name from the field name/tag.
-		tag := fieldt.Tag.Get("res")
-		if tag == "" {
-			tag = fieldt.Name
-		}
-
-		// Now, recursively emit and collate each resource.
-		fieldv := val.Field(i)
-		res = append(res, toResource(url+"/"+tag, fieldv.Interface())...)
-	}
-
-	// Now fill in the final available fields count
-	res[0].value = strconv.Itoa(af)
-
-	return res
-}
-
-func sliceToResource(url string, val reflect.Value, typ reflect.Type) []Resource {
-	len := val.Len()
-
-	// As before, but now with a list and indexes.
-	res := []Resource{Resource{url, "list", strconv.Itoa(len)}}
-
-	for i := 0; i < len; i++ {
-		fieldv := val.Index(i)
-		res = append(res, toResource(url+"/"+strconv.Itoa(i), fieldv.Interface())...)
-	}
-
-	return res
 }
 
 func getTrackInfo(trackid uint64, db *sql.DB) (track Track, err error) {
@@ -133,9 +62,10 @@ func main() {
 	usage := `FIX
 
 Usage:
-    trackd TRACKID
+    trackd HOSTPORT
 
 Options:
+    HOSTPORT       The host and port on which trackd should listen (host:port).
     -h, --help     Show this message.
     -v, --version  Show version.
 `
@@ -144,17 +74,92 @@ Options:
 		log.Fatal(err)
 	}
 
-	trackid, err := strconv.ParseUint(arguments["TRACKID"].(string), 10, 64)
+	ln, err := net.Listen("tcp", arguments["HOSTPORT"].(string))
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer func() {
+		if err := ln.Close(); err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	db, err := getDB()
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer func() {
 		if err := db.Close(); err != nil {
 			log.Fatal(err)
 		}
 	}()
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			log.Fatal(err)
+		}
+		go handleConnection(conn, db)
+	}
+}
+
+func handleConnection(conn net.Conn, db *sql.DB) {
+	buf := make([]byte, 1024)
+	tok := baps3.NewTokeniser()
+
+	for {
+		nbytes, err := conn.Read(buf)
+		if err != nil {
+			// TODO: handle error correctly, send error to client
+			log.Printf("connection read error: %q", err)
+			return
+		}
+
+		lines, _, err := tok.Tokenise(buf[:nbytes])
+		if err != nil {
+			// TODO: handle error correctly, retry tokenising perhaps
+			log.Printf("connection tokenise error: %q", err)
+			return
+		}
+
+		for _, line := range lines {
+			// TODO: handle quit
+			// TODO: handle bad command
+			if 0 < len(line) {
+				// TODO: split up this almighty switch statement
+				switch line[0] {
+				case "read":
+					// TODO: handle trailing slash
+					if 1 < len(line) {
+						resources := strings.Split(strings.Trim(line[1], "/"), "/")
+						if len(resources) == 2 && resources[0] == "tracks" {
+							log.Printf("LOOKUP %q", resources[1])
+							lookupTrack(conn, db, resources[1])
+						} else {
+							log.Printf("FIXME: unknown read %q", resources)
+						}
+					} else {
+						// TODO: send failure here
+						log.Printf("FIXME: bad read %q", line)
+					}
+				default:
+					// TODO: write
+					// TODO: delete
+					log.Printf("FIXME: unknown command %q", line)
+				}
+			} else {
+				// TODO: handle properly
+				log.Printf("FIXME: zero-word line received")
+			}
+		}
+	}
+}
+
+func lookupTrack(writer io.Writer, db *sql.DB, trackres string) {
+	trackid, err := strconv.ParseUint(trackres, 10, 64)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	track, err := getTrackInfo(trackid, db)
 
@@ -167,7 +172,7 @@ Options:
 	urlstub := fmt.Sprintf("/tracks/%d", trackid)
 	res := toResource("", track)
 	for _, r := range res {
-		emitRes(os.Stdout, urlstub, r.rtype, r.path, r.value)
+		emitRes(writer, urlstub, r.rtype, r.path, r.value)
 	}
 }
 
