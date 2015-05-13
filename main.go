@@ -15,13 +15,13 @@ import (
 
 // Track is the structure of information for one track.
 type Track struct {
-	Path         string
-	Title        string
-	Artist       string
-	RecordID     int
-	RecordTitle  string
-	RecordArtist string
-	RecentPlays  uint64
+	Path         string `res:"path"`
+	Title        string `res:"title"`
+	Artist       string `res:"artist"`
+	RecordID     int    `res:"record_id"`
+	RecordTitle  string `res:"record_title"`
+	RecordArtist string `res:"record_artist"`
+	RecentPlays  uint64 `res:"recent_plays"`
 }
 
 // Resource is a structure containing the path, type, and value of a RES response.
