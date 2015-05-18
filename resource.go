@@ -23,7 +23,7 @@ func toResource(url string, item interface{}) []Resource {
 	case reflect.Array, reflect.Slice:
 		return sliceToResource(url, val, typ)
 	default:
-		return []Resource{Resource{url, "entry", fmt.Sprint(item)}}
+		return []Resource{{url, "entry", fmt.Sprint(item)}}
 	}
 }
 
@@ -33,7 +33,7 @@ func structToResource(url string, val reflect.Value, typ reflect.Type) []Resourc
 
 	// First, announce the incoming directory.
 	// We'll fix the value later.
-	res := []Resource{Resource{url, "directory", "?"}}
+	res := []Resource{{url, "directory", "?"}}
 
 	// Now, recursively work out the fields.
 	for i := 0; i < nf; i++ {
@@ -67,7 +67,7 @@ func sliceToResource(url string, val reflect.Value, typ reflect.Type) []Resource
 	len := val.Len()
 
 	// As before, but now with a list and indexes.
-	res := []Resource{Resource{url, "list", strconv.Itoa(len)}}
+	res := []Resource{{url, "list", strconv.Itoa(len)}}
 
 	for i := 0; i < len; i++ {
 		fieldv := val.Index(i)
