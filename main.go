@@ -129,19 +129,7 @@ func handleConnection(conn net.Conn, db *sql.DB) {
 				// TODO: split up this almighty switch statement
 				switch line[0] {
 				case "read":
-					// TODO: handle trailing slash
-					if 1 < len(line) {
-						resources := strings.Split(strings.Trim(line[1], "/"), "/")
-						if len(resources) == 2 && resources[0] == "tracks" {
-							log.Printf("LOOKUP %q", resources[1])
-							lookupTrack(conn, db, resources[1])
-						} else {
-							log.Printf("FIXME: unknown read %q", resources)
-						}
-					} else {
-						// TODO: send failure here
-						log.Printf("FIXME: bad read %q", line)
-					}
+					handleRead(conn, db, line[1:])
 				default:
 					// TODO: write
 					// TODO: delete
@@ -152,6 +140,22 @@ func handleConnection(conn net.Conn, db *sql.DB) {
 				log.Printf("FIXME: zero-word line received")
 			}
 		}
+	}
+}
+
+func handleRead(conn net.Conn, db *sql.DB, args []string) {
+	// TODO: handle trailing slash
+	if 1 == len(args) {
+		resources := strings.Split(strings.Trim(args[0], "/"), "/")
+		if len(resources) == 2 && resources[0] == "tracks" {
+			log.Printf("LOOKUP %q", resources[1])
+			lookupTrack(conn, db, resources[1])
+		} else {
+			log.Printf("FIXME: unknown read %q", resources)
+		}
+	} else {
+		// TODO: send failure here
+		log.Printf("FIXME: bad read %q", args)
 	}
 }
 
