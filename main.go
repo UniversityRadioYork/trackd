@@ -123,40 +123,75 @@ func handleConnection(conn net.Conn, db *sql.DB) {
 		}
 
 		for _, line := range lines {
+			var lerr error
+
 			// TODO: handle quit
 			// TODO: handle bad command
 			if 0 < len(line) {
 				// TODO: split up this almighty switch statement
 				switch line[0] {
 				case "read":
-					handleRead(conn, db, line[1:])
+					lerr = handleRead(conn, db, line[1:])
 				default:
 					// TODO: write
 					// TODO: delete
-					log.Printf("FIXME: unknown command %q", line)
+					lerr = fmt.Errorf("FIXME: unknown command %q", line)
 				}
 			} else {
 				// TODO: handle properly
-				log.Printf("FIXME: zero-word line received")
+				lerr = fmt.Errorf("FIXME: zero-word line received")
+			}
+
+			ack := "???"
+			lstr := "Success"
+			if lerr == nil {
+				ack = "OK"
+
+			} else {
+				// TODO: proper error distinguishment
+				ack = "FAIL"
+				lstr = lerr.Error()
+			}
+
+			oerr := outputAck(conn, ack, lstr, line)
+			if oerr != nil {
+				log.Println(oerr)
 			}
 		}
 	}
 }
 
-func handleRead(conn net.Conn, db *sql.DB, args []string) {
-	// TODO: handle trailing slash
-	if 1 == len(args) {
-		resources := strings.Split(strings.Trim(args[0], "/"), "/")
+func outputAck(conn net.Conn, ack string, lstr string, line []string) (err error) {
+	tmsg := baps3.NewMessage(baps3.RsAck).AddArg(ack).AddArg(lstr)
+	for _, arg := range line {
+		tmsg.AddArg(arg)
+	}
+
+	tpack, err := tmsg.Pack()
+	if err != nil {
+		return
+	}
+	_, err = conn.Write(tpack)
+
+	return
+}
+
+func handleRead(conn net.Conn, db *sql.DB, args []string) error {
+	// read TAG(ignored) PATH
+	if 2 == len(args) {
+		resources := strings.Split(strings.Trim(args[1], "/"), "/")
 		if len(resources) == 2 && resources[0] == "tracks" {
 			log.Printf("LOOKUP %q", resources[1])
 			lookupTrack(conn, db, resources[1])
 		} else {
-			log.Printf("FIXME: unknown read %q", resources)
+			return fmt.Errorf("FIXME: unknown read %q", resources)
 		}
 	} else {
 		// TODO: send failure here
-		log.Printf("FIXME: bad read %q", args)
+		return fmt.Errorf("FIXME: bad read %q", args)
 	}
+
+	return nil
 }
 
 func lookupTrack(writer io.Writer, db *sql.DB, trackres string) {
@@ -166,7 +201,6 @@ func lookupTrack(writer io.Writer, db *sql.DB, trackres string) {
 	}
 
 	track, err := getTrackInfo(trackid, db)
-
 	if err != nil {
 		log.Fatal(err)
 	}
