@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"strings"
@@ -44,17 +43,41 @@ Options:
 		}
 	}()
 
-	// Quitting channels for the requestl oop and client pool.
-	rlQuit := make(chan struct{})
 	cpQuit := make(chan struct{})
 
 	var wg sync.WaitGroup
 
 	clientPoolHandle := NewClientPool(cpQuit)
+	wg.Add(1)
 	go clientPoolHandle.Pool.Run(&wg)
 
 	requests := make(chan *Request)
-	go RequestLoop(ln, requests, clientPoolHandle.Broadcast, rlQuit, &wg)
+
+	wg.Add(1)
+
+	go AcceptLoop(ln, requests, &clientPoolHandle, &wg)
+
+	RequestLoop(requests, clientPoolHandle.Broadcast, &wg)
+	log.Println("main loop closing")
+
+	// The client pool will tell all the connected clients to quit.
+	cpQuit <- struct{}{}
+	log.Println("main loop sent quit signal to client pool")
+
+	// To close the accept loop, we have to kill off the acceptor.
+	if err := ln.Close(); err != nil {
+		log.Fatal(err)
+	}
+
+	wg.Wait()
+	log.Println("trackd closing")
+}
+
+func AcceptLoop(ln net.Listener, requests chan<- *Request, clientPoolHandle *ClientPoolHandle, wg *sync.WaitGroup) {
+	if wg != nil {
+		defer wg.Done()
+	}
+	defer func() { log.Println("accept loop closing") }()
 
 	for {
 		conn, err := ln.Accept()
@@ -62,37 +85,24 @@ Options:
 			log.Println(err)
 			break
 		}
-		go handleConnection(conn, requests, &clientPoolHandle, &wg)
+
+		// Two goroutines: read and write
+		wg.Add(2)
+		go handleConnection(conn, requests, clientPoolHandle, wg)
 	}
-
-	log.Println("main loop closing")
-
-	// The client pool will tell all the connected clients to quit.
-	cpQuit <- struct{}{}
-	rlQuit <- struct{}{}
-
-	wg.Wait()
-	log.Println("trackd closing")
 }
 
-func RequestLoop(ln io.Closer, requests <-chan *Request, broadcast chan<- *baps3.Message, quit chan struct{}, wg *sync.WaitGroup) {
-	if wg != nil {
-		wg.Add(1)
-		defer wg.Done()
-	}
-
+func RequestLoop(requests <-chan *Request, broadcast chan<- *baps3.Message, wg *sync.WaitGroup) {
 	db, err := getDB()
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer func() {
-		if err := ln.Close(); err != nil {
-			log.Fatal(err)
-		}
 		if err := db.Close(); err != nil {
 			log.Fatal(err)
 		}
 	}()
+
 	t := NewTrackDB(db, `M:\%d\%d`)
 
 	for {
@@ -105,8 +115,6 @@ func RequestLoop(ln io.Closer, requests <-chan *Request, broadcast chan<- *baps3
 			if finished := handleRequest(broadcast, t, r); finished {
 				return
 			}
-		case <-quit:
-			return
 		}
 	}
 }

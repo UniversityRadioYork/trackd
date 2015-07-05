@@ -61,18 +61,21 @@ func NewClientPool(quit chan struct{}) ClientPoolHandle {
 
 // Run runs the client pool loop.
 // It takes one argument:
-//   wg: a WaitGroup, which if non-nil will be set one higher during the
-//       ClientPool's lifetime.
+//   wg: a WaitGroup, which is decremented when the ClientPool quits.
+//       It is not incremented here: increment it before calling Run.
 func (cp ClientPool) Run(wg *sync.WaitGroup) {
 	if wg != nil {
-		wg.Add(1)
 		defer wg.Done()
 	}
+
+	defer func() { log.Println("client pool is closing") }()
 
 	for {
 		select {
 		case change := <-cp.changes:
 			cp.handleClientChange(change)
+
+			log.Printf("clientPool: now %d clients", len(cp.contents))
 
 			// If we're quitting, we're now waiting for all of the
 			// connections to close so we can quit.
@@ -85,7 +88,7 @@ func (cp ClientPool) Run(wg *sync.WaitGroup) {
 				client.Broadcast <- broadcast
 			}
 		case <-cp.quit:
-			log.Println("client pool closing")
+			log.Println("client pool is beginning to close")
 
 			cp.quitting = true
 

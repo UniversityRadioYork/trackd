@@ -14,9 +14,10 @@ func handleConnection(conn net.Conn, requests chan<- *Request, cp *ClientPoolHan
 	// properly.  This only handles this routine: handleConnectionRead has
 	// its own waitgroup handling.
 	if wg != nil {
-		wg.Add(1)
 		defer wg.Done()
 	}
+
+	defer func() { log.Println("connection write side closing") }()
 
 	responses := make(chan *baps3.Message)
 	disconnect := make(chan struct{})
@@ -54,8 +55,6 @@ func handleConnection(conn net.Conn, requests chan<- *Request, cp *ClientPoolHan
 		log.Printf("couldn't close connection: %q", err)
 	}
 
-	log.Println("connection write side closing")
-
 }
 
 func handleConnectionWrite(conn net.Conn, responses <-chan *baps3.Message, quit <-chan struct{}) {
@@ -78,9 +77,9 @@ func handleConnectionWrite(conn net.Conn, responses <-chan *baps3.Message, quit 
 
 func handleConnectionRead(conn net.Conn, requests chan<- *Request, responses chan<- *baps3.Message, wg *sync.WaitGroup) {
 	if wg != nil {
-		wg.Add(1)
 		defer wg.Done()
 	}
+	defer func() { log.Println("connection read side closing") }()
 
 	// Ensure the write portion is closed when reading stops.
 	// The closing of the responses channel will do this.
