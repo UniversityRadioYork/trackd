@@ -23,7 +23,7 @@ type ClientChange struct {
 }
 
 type ClientPool struct {
-	contents  map[*ClientHandle]bool
+	contents  map[*ClientHandle]struct{}
 	changes   <-chan ClientChange
 	quit      <-chan struct{}
 	broadcast <-chan *baps3.Message
@@ -45,7 +45,7 @@ func NewClientPool(quit chan struct{}) ClientPoolHandle {
 	broadcast := make(chan *baps3.Message)
 
 	cp := ClientPool{
-		contents:  make(map[*ClientHandle]bool),
+		contents:  make(map[*ClientHandle]struct{}),
 		changes:   changes,
 		quit:      quit,
 		broadcast: broadcast,
@@ -129,7 +129,7 @@ func (cp ClientPool) addClient(client *ClientHandle) error {
 	if _, ok := cp.contents[client]; ok {
 		return fmt.Errorf("addClient: client %q already present", client)
 	}
-	cp.contents[client] = true
+	cp.contents[client] = struct{}{}
 	return nil
 }
 
