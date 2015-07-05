@@ -8,13 +8,14 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/UniversityRadioYork/baps3-go"
 	"github.com/docopt/docopt-go"
 	_ "github.com/lib/pq"
 )
 
 type Request struct {
-	contents []string
-	response chan<- []string
+	contents *baps3.Message
+	response chan<- *baps3.Message
 }
 
 func main() {
@@ -62,7 +63,7 @@ Options:
 	wg.Wait()
 }
 
-func RequestLoop(ln io.Closer, requests <-chan *Request, broadcast chan<- []string, wg *sync.WaitGroup) {
+func RequestLoop(ln io.Closer, requests <-chan *Request, broadcast chan<- *baps3.Message, wg *sync.WaitGroup) {
 	if wg != nil {
 		wg.Add(1)
 		defer wg.Done()
@@ -96,35 +97,30 @@ func RequestLoop(ln io.Closer, requests <-chan *Request, broadcast chan<- []stri
 	}
 }
 
-type CmdTable map[string]func(chan<- []string, chan<- []string, *TrackDB, []string) (bool, error)
+type CmdTable map[baps3.MessageWord]func(chan<- *baps3.Message, chan<- *baps3.Message, *TrackDB, []string) (bool, error)
 
 var cmds CmdTable = CmdTable{
-	"read": handleRead,
-	"quit": handleQuit,
+	baps3.RqRead: handleRead,
+	baps3.RqQuit: handleQuit,
 }
 
-func handleQuit(_, _ chan<- []string, _ *TrackDB, _ []string) (bool, error) {
+func handleQuit(_, _ chan<- *baps3.Message, _ *TrackDB, _ []string) (bool, error) {
 	return true, nil
 }
 
-func handleRequest(broadcast chan<- []string, t *TrackDB, request *Request) bool {
+func handleRequest(broadcast chan<- *baps3.Message, t *TrackDB, request *Request) bool {
 	var lerr error
 	finished := false
 
-	line := request.contents
+	msg := request.contents
 
 	// TODO: handle quit
 	// TODO: handle bad command
-	if 0 < len(line) {
-		cmdfunc, ok := cmds[line[0]]
-		if ok {
-			finished, lerr = cmdfunc(broadcast, request.response, t, line[1:])
-		} else {
-			lerr = fmt.Errorf("FIXME: unknown command %q", line)
-		}
+	cmdfunc, ok := cmds[msg.Word()]
+	if ok {
+		finished, lerr = cmdfunc(broadcast, request.response, t, msg.Args())
 	} else {
-		// TODO: handle properly
-		lerr = fmt.Errorf("FIXME: zero-word line received")
+		lerr = fmt.Errorf("FIXME: unknown command %q", msg.Word())
 	}
 
 	acktype := "???"
@@ -138,11 +134,12 @@ func handleRequest(broadcast chan<- []string, t *TrackDB, request *Request) bool
 	}
 
 	log.Printf("Sending ack: %q, %q", acktype, lstr)
-	request.response <- []string{"ACK", acktype, lstr}
+
+	request.response <- baps3.NewMessage(baps3.RsAck).AddArg(acktype).AddArg(lstr)
 	return finished
 }
 
-func handleRead(_ chan<- []string, response chan<- []string, t *TrackDB, args []string) (bool, error) {
+func handleRead(_ chan<- *baps3.Message, response chan<- *baps3.Message, t *TrackDB, args []string) (bool, error) {
 	// read TAG(ignored) PATH
 	if 2 == len(args) {
 		resources := strings.Split(strings.Trim(args[1], "/"), "/")

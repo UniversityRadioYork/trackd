@@ -18,7 +18,7 @@ func handleConnection(conn net.Conn, requests chan<- *Request, cp *ClientPoolHan
 		defer wg.Done()
 	}
 
-	responses := make(chan []string)
+	responses := make(chan *baps3.Message)
 	reply := make(chan bool)
 
 	handle := ClientHandle{
@@ -53,7 +53,7 @@ func handleConnection(conn net.Conn, requests chan<- *Request, cp *ClientPoolHan
 
 }
 
-func handleConnectionWrite(conn net.Conn, responses <-chan []string) {
+func handleConnectionWrite(conn net.Conn, responses <-chan *baps3.Message) {
 	for {
 		select {
 		case response, more := <-responses:
@@ -65,7 +65,7 @@ func handleConnectionWrite(conn net.Conn, responses <-chan []string) {
 	}
 }
 
-func handleConnectionRead(conn net.Conn, requests chan<- *Request, responses chan<- []string, wg *sync.WaitGroup) {
+func handleConnectionRead(conn net.Conn, requests chan<- *Request, responses chan<- *baps3.Message, wg *sync.WaitGroup) {
 	if wg != nil {
 		wg.Add(1)
 		defer wg.Done()
@@ -100,21 +100,21 @@ func handleConnectionRead(conn net.Conn, requests chan<- *Request, responses cha
 		}
 
 		for _, line := range lines {
-			requests <- &Request{
-				contents: line,
-				response: responses,
+			msg, err := baps3.LineToMessage(line)
+			if err != nil {
+				log.Printf("bad message: %q", line)
+			} else {
+				requests <- &Request{
+					contents: msg,
+					response: responses,
+				}
 			}
 		}
 	}
 }
 
-// TODO(CaptainHayashi): use messages, not []string
-func writeResponse(conn net.Conn, line []string) error {
-	if len(line) == 0 {
-		return nil
-	}
-
-	bytes, err := baps3.Pack(line[0], line[1:])
+func writeResponse(conn net.Conn, message *baps3.Message) error {
+	bytes, err := message.Pack()
 	if err != nil {
 		return err
 	}
@@ -124,28 +124,6 @@ func writeResponse(conn net.Conn, line []string) error {
 	return nil
 }
 
-// TODO(CaptainHayashi): used?
-func outputAck(conn net.Conn, ack string, lstr string, line []string) (err error) {
-	tmsg := baps3.NewMessage(baps3.RsAck).AddArg(ack).AddArg(lstr)
-	for _, arg := range line {
-		tmsg.AddArg(arg)
-	}
-
-	tpack, err := tmsg.Pack()
-	if err != nil {
-		return
-	}
-	_, err = conn.Write(tpack)
-
-	return
-}
-
-func emitRes(output chan<- []string, urlstub string, restype string, resname string, resval string) {
-	output <- []string{"RES", urlstub + resname, restype, resval}
-	//tmsg := baps3.NewMessage(baps3.RsRes).AddArg(urlstub + resname).AddArg(restype).AddArg(resval)
-	//tpack, err := tmsg.Pack()
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//writer.Write(tpack)
+func emitRes(output chan<- *baps3.Message, urlstub string, restype string, resname string, resval string) {
+	output <- baps3.NewMessage(baps3.RsRes).AddArg(urlstub + resname).AddArg(restype).AddArg(resval)
 }

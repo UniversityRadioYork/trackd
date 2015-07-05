@@ -6,6 +6,7 @@ import (
 	"log"
 	"strconv"
 
+	"github.com/UniversityRadioYork/baps3-go"
 	_ "github.com/lib/pq"
 )
 
@@ -67,7 +68,7 @@ func (t *TrackDB) getTrackRecentPlays(trackid uint64) (plays uint64, err error) 
 	return
 }
 
-func (t *TrackDB) LookupTrack(output chan<- []string, trackres string) {
+func (t *TrackDB) LookupTrack(output chan<- *baps3.Message, trackres string) {
 	trackid, err := strconv.ParseUint(trackres, 10, 64)
 	if err != nil {
 		log.Fatal(err)

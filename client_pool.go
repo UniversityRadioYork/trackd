@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"log"
 	"sync"
+
+	"github.com/UniversityRadioYork/baps3-go"
 )
 
 type ClientHandle struct {
 	// Channel for sending broadcast messages to this client.
-	Broadcast chan<- []string
+	Broadcast chan<- *baps3.Message
 }
 
 // ClientChange is a request to the client pool to add or remove a client.
@@ -22,7 +24,7 @@ type ClientPool struct {
 	contents  map[*ClientHandle]bool
 	changes   <-chan ClientChange
 	quit      <-chan bool
-	broadcast <-chan []string
+	broadcast <-chan *baps3.Message
 }
 
 // ClientPoolHandle contains a ClientPool and channels to communicate with it
@@ -31,7 +33,7 @@ type ClientPoolHandle struct {
 	Pool      *ClientPool
 	Changes   chan<- ClientChange
 	Quit      chan<- bool
-	Broadcast chan<- []string
+	Broadcast chan<- *baps3.Message
 }
 
 // NewClientPool creates a new client pool.
@@ -39,7 +41,7 @@ type ClientPoolHandle struct {
 func NewClientPool() ClientPoolHandle {
 	changes := make(chan ClientChange)
 	quit := make(chan bool)
-	broadcast := make(chan []string)
+	broadcast := make(chan *baps3.Message)
 
 	cp := ClientPool{
 		contents:  make(map[*ClientHandle]bool),
