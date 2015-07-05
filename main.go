@@ -44,26 +44,38 @@ Options:
 		}
 	}()
 
+	// Quitting channels for the requestl oop and client pool.
+	rlQuit := make(chan struct{})
+	cpQuit := make(chan struct{})
+
 	var wg sync.WaitGroup
 
-	clientPoolHandle := NewClientPool()
+	clientPoolHandle := NewClientPool(cpQuit)
 	go clientPoolHandle.Pool.Run(&wg)
 
 	requests := make(chan *Request)
-	go RequestLoop(ln, requests, clientPoolHandle.Broadcast, &wg)
+	go RequestLoop(ln, requests, clientPoolHandle.Broadcast, rlQuit, &wg)
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			break
 		}
 		go handleConnection(conn, requests, &clientPoolHandle, &wg)
 	}
 
+	log.Println("main loop closing")
+
+	// The client pool will tell all the connected clients to quit.
+	cpQuit <- struct{}{}
+	rlQuit <- struct{}{}
+
 	wg.Wait()
+	log.Println("trackd closing")
 }
 
-func RequestLoop(ln io.Closer, requests <-chan *Request, broadcast chan<- *baps3.Message, wg *sync.WaitGroup) {
+func RequestLoop(ln io.Closer, requests <-chan *Request, broadcast chan<- *baps3.Message, quit chan struct{}, wg *sync.WaitGroup) {
 	if wg != nil {
 		wg.Add(1)
 		defer wg.Done()
@@ -93,6 +105,8 @@ func RequestLoop(ln io.Closer, requests <-chan *Request, broadcast chan<- *baps3
 			if finished := handleRequest(broadcast, t, r); finished {
 				return
 			}
+		case <-quit:
+			return
 		}
 	}
 }

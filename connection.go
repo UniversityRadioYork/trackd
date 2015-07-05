@@ -19,10 +19,12 @@ func handleConnection(conn net.Conn, requests chan<- *Request, cp *ClientPoolHan
 	}
 
 	responses := make(chan *baps3.Message)
+	disconnect := make(chan struct{})
 	reply := make(chan bool)
 
 	handle := ClientHandle{
-		Broadcast: responses,
+		Broadcast:  responses,
+		Disconnect: disconnect,
 	}
 
 	// Tell the client pool we've arrived, and how to contact us.
@@ -33,13 +35,14 @@ func handleConnection(conn net.Conn, requests chan<- *Request, cp *ClientPoolHan
 	}
 
 	go handleConnectionRead(conn, requests, responses, wg)
-	handleConnectionWrite(conn, responses)
+	handleConnectionWrite(conn, responses, disconnect)
 
 	// If we get here, the write loop has closed.
 	// This only happens if the responses channel is dead, which is either
 	// from the client pool or the read loop closing it.
 
 	// Tell the client pool we're off.
+	log.Println("connection write side signalling closure")
 	cp.Changes <- ClientChange{&handle, false, reply}
 	if r := <-reply; !r {
 		log.Println("connection removal refused by client pool")
@@ -51,11 +54,19 @@ func handleConnection(conn net.Conn, requests chan<- *Request, cp *ClientPoolHan
 		log.Printf("couldn't close connection: %q", err)
 	}
 
+	log.Println("connection write side closing")
+
 }
 
-func handleConnectionWrite(conn net.Conn, responses <-chan *baps3.Message) {
+func handleConnectionWrite(conn net.Conn, responses <-chan *baps3.Message, quit <-chan struct{}) {
 	for {
 		select {
+		case <-quit:
+			log.Println("connection has quit signal")
+			// The write routine has responsibility for listening
+			// to the server quit channel to see if the connection
+			// must be closed.
+			return
 		case response, more := <-responses:
 			if !more {
 				return
@@ -122,8 +133,4 @@ func writeResponse(conn net.Conn, message *baps3.Message) error {
 		return err
 	}
 	return nil
-}
-
-func emitRes(output chan<- *baps3.Message, urlstub string, restype string, resname string, resval string) {
-	output <- baps3.NewMessage(baps3.RsRes).AddArg(urlstub + resname).AddArg(restype).AddArg(resval)
 }

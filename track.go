@@ -87,3 +87,7 @@ func (t *TrackDB) LookupTrack(output chan<- *baps3.Message, trackres string) {
 		emitRes(output, urlstub, r.rtype, r.path, r.value)
 	}
 }
+
+func emitRes(output chan<- *baps3.Message, urlstub string, restype string, resname string, resval string) {
+	output <- baps3.NewMessage(baps3.RsRes).AddArg(urlstub + resname).AddArg(restype).AddArg(resval)
+}
