@@ -5,11 +5,11 @@ import (
 	"log"
 	"net"
 	"strings"
-	"sync"
 
 	"github.com/UniversityRadioYork/baps3-go"
 	"github.com/docopt/docopt-go"
 	_ "github.com/lib/pq"
+	"gopkg.in/tomb.v2"
 )
 
 type Request struct {
@@ -72,56 +72,49 @@ func RunTcpServer(requestMap RequestMap, hostport string) {
 
 	cpQuit := make(chan struct{})
 
-	var wg sync.WaitGroup
+	var t tomb.Tomb
 
 	clientPoolHandle := NewClientPool(cpQuit)
-	wg.Add(1)
-	go clientPoolHandle.Pool.Run(&wg)
+	t.Go(func() error { return clientPoolHandle.Pool.Run(&t) })
 
 	requests := make(chan *Request)
 
-	wg.Add(1)
+	t.Go(func() error { return AcceptLoop(ln, requests, &clientPoolHandle, &t) })
 
-	go AcceptLoop(ln, requests, &clientPoolHandle, &wg)
+	RequestLoop(requests, clientPoolHandle.Broadcast, requestMap, &t)
 
-	RequestLoop(requests, clientPoolHandle.Broadcast, requestMap, &wg)
-	log.Println("main loop closing")
-
-	// The client pool will tell all the connected clients to quit.
-	cpQuit <- struct{}{}
-	log.Println("main loop sent quit signal to client pool")
+	t.Killf("main loop closing")
 
 	// To close the accept loop, we have to kill off the acceptor.
 	if err := ln.Close(); err != nil {
 		log.Fatal(err)
 	}
 
-	wg.Wait()
-	log.Println("trackd closing")
+	log.Println(t.Wait())
 }
 
-func AcceptLoop(ln net.Listener, requests chan<- *Request, clientPoolHandle *ClientPoolHandle, wg *sync.WaitGroup) {
-	if wg != nil {
-		defer wg.Done()
-	}
+func AcceptLoop(ln net.Listener, requests chan<- *Request, clientPoolHandle *ClientPoolHandle, t *tomb.Tomb) (err error) {
 	defer func() { log.Println("accept loop closing") }()
 
 	for {
-		conn, err := ln.Accept()
-		if err != nil {
+		conn, cerr := ln.Accept()
+		if cerr != nil {
 			log.Println(err)
+			err = cerr
 			break
 		}
 
-		// Two goroutines: read and write
-		wg.Add(2)
-		go handleConnection(conn, requests, clientPoolHandle, wg)
+		t.Go(func() error { return handleConnection(conn, requests, clientPoolHandle, t) })
 	}
+
+	return
 }
 
-func RequestLoop(requests <-chan *Request, broadcast chan<- *baps3.Message, requestMap RequestMap, wg *sync.WaitGroup) {
+func RequestLoop(requests <-chan *Request, broadcast chan<- *baps3.Message, requestMap RequestMap, t *tomb.Tomb) {
 	for {
 		select {
+		case <-t.Dying():
+			return
 		case r, more := <-requests:
 			if !more {
 				return

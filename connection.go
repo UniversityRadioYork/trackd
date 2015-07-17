@@ -4,19 +4,12 @@ import (
 	"io"
 	"log"
 	"net"
-	"sync"
 
 	"github.com/UniversityRadioYork/baps3-go"
+	"gopkg.in/tomb.v2"
 )
 
-func handleConnection(conn net.Conn, requests chan<- *Request, cp *ClientPoolHandle, wg *sync.WaitGroup) {
-	// Make sure the main server waits for this connection to close
-	// properly.  This only handles this routine: handleConnectionRead has
-	// its own waitgroup handling.
-	if wg != nil {
-		defer wg.Done()
-	}
-
+func handleConnection(conn net.Conn, requests chan<- *Request, cp *ClientPoolHandle, t *tomb.Tomb) (err error) {
 	defer func() { log.Println("connection write side closing") }()
 
 	responses := make(chan *baps3.Message)
@@ -35,8 +28,8 @@ func handleConnection(conn net.Conn, requests chan<- *Request, cp *ClientPoolHan
 		return
 	}
 
-	go handleConnectionRead(conn, requests, responses, wg)
-	handleConnectionWrite(conn, responses, disconnect)
+	t.Go(func() error { return handleConnectionRead(conn, requests, responses) })
+	err = handleConnectionWrite(conn, responses, t.Dying())
 
 	// If we get here, the write loop has closed.
 	// This only happens if the responses channel is dead, which is either
@@ -55,9 +48,10 @@ func handleConnection(conn net.Conn, requests chan<- *Request, cp *ClientPoolHan
 		log.Printf("couldn't close connection: %q", err)
 	}
 
+	return
 }
 
-func handleConnectionWrite(conn net.Conn, responses <-chan *baps3.Message, quit <-chan struct{}) {
+func handleConnectionWrite(conn net.Conn, responses <-chan *baps3.Message, quit <-chan struct{}) (err error) {
 	for {
 		select {
 		case <-quit:
@@ -75,10 +69,7 @@ func handleConnectionWrite(conn net.Conn, responses <-chan *baps3.Message, quit 
 	}
 }
 
-func handleConnectionRead(conn net.Conn, requests chan<- *Request, responses chan<- *baps3.Message, wg *sync.WaitGroup) {
-	if wg != nil {
-		defer wg.Done()
-	}
+func handleConnectionRead(conn net.Conn, requests chan<- *Request, responses chan<- *baps3.Message) (err error) {
 	defer func() { log.Println("connection read side closing") }()
 
 	// Ensure the write portion is closed when reading stops.
@@ -93,19 +84,21 @@ func handleConnectionRead(conn net.Conn, requests chan<- *Request, responses cha
 	tok := baps3.NewTokeniser()
 
 	for {
-		nbytes, err := conn.Read(buf)
-		if err != nil {
-			if err != io.EOF {
+		nbytes, rerr := conn.Read(buf)
+		if rerr != nil {
+			if rerr != io.EOF {
 				// TODO: handle error correctly, send error to client
 				log.Printf("connection read error: %q", err)
+				err = rerr
 			}
 			return
 		}
 
-		lines, _, err := tok.Tokenise(buf[:nbytes])
-		if err != nil {
+		lines, _, terr := tok.Tokenise(buf[:nbytes])
+		if terr != nil {
 			// TODO: handle error correctly, retry tokenising perhaps
 			log.Printf("connection tokenise error: %q", err)
+			terr = err
 			return
 		}
 

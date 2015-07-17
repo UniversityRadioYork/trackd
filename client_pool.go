@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
-	"sync"
 
 	"github.com/UniversityRadioYork/baps3-go"
+	"gopkg.in/tomb.v2"
 )
 
 type ClientHandle struct {
@@ -61,13 +61,8 @@ func NewClientPool(quit chan struct{}) ClientPoolHandle {
 
 // Run runs the client pool loop.
 // It takes one argument:
-//   wg: a WaitGroup, which is decremented when the ClientPool quits.
-//       It is not incremented here: increment it before calling Run.
-func (cp ClientPool) Run(wg *sync.WaitGroup) {
-	if wg != nil {
-		defer wg.Done()
-	}
-
+//   t: a Tomb, whose death causes this client pool to die.
+func (cp ClientPool) Run(t *tomb.Tomb) (err error) {
 	defer func() { log.Println("client pool is closing") }()
 
 	for {
@@ -87,15 +82,10 @@ func (cp ClientPool) Run(wg *sync.WaitGroup) {
 			for client, _ := range cp.contents {
 				client.Broadcast <- broadcast
 			}
-		case <-cp.quit:
+		case <-t.Dying():
 			log.Println("client pool is beginning to close")
 
 			cp.quitting = true
-
-			// Tell all the connections to quit.
-			for client, _ := range cp.contents {
-				client.Disconnect <- struct{}{}
-			}
 
 			// If we don't have any connections, then close right
 			// now.  Otherwise, we wait for those connections to
