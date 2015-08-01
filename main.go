@@ -1,32 +1,41 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
+	"os/exec"
 	"strings"
 
 	"github.com/UniversityRadioYork/baps3-go"
 	"github.com/UniversityRadioYork/bifrost-server/request"
 	"github.com/UniversityRadioYork/bifrost-server/tcpserver"
-	"github.com/docopt/docopt-go"
+	//"github.com/docopt/docopt-go"
 	_ "github.com/lib/pq"
 )
 
+var hostport = flag.String("hostport", "localhost:8123", "The host and port on which trackd should listen (host:port).")
+var resolver = flag.String("resolver", "resolve", "The two-argument command to which trackids will be sent on stdin.")
+
+func resolve(recordid, trackid string) (out string, err error) {
+	cmd := exec.Command(*resolver, recordid, trackid)
+
+	var outb []byte
+	outb, err = cmd.Output()
+	out = string(outb)
+
+	return
+}
+
 func main() {
-	usage := `trackd - track resolving server for BAPS3
+	flag.Parse()
 
-Usage:
-    trackd HOSTPORT
-
-Options:
-    HOSTPORT       The host and port on which trackd should listen (host:port).
-    -h, --help     Show this message.
-    -v, --version  Show version.
-`
-	arguments, err := docopt.Parse(usage, nil, true, "trackd 0.0", true)
-	if err != nil {
-		log.Fatal(err)
+	sample, serr := resolve("recordid", "trackid")
+	if serr != nil {
+		log.Fatal(serr)
 	}
+
+	log.Printf("example resolve: %s recordid trackid -> %s", *resolver, sample)
 
 	db, err := getDB()
 	if err != nil {
@@ -38,12 +47,13 @@ Options:
 		}
 	}()
 
-	t := NewTrackDB(db, `M:\%d\%d`)
+	t := NewTrackDB(db, resolve)
 
+	log.Printf("listening on %s", *hostport)
 	tcpserver.Serve(request.Map{
 		baps3.RqRead: func(b, r chan<- *baps3.Message, s []string) (bool, error) { return handleRead(b, r, t, s) },
 		baps3.RqQuit: func(_, _ chan<- *baps3.Message, _ []string) (bool, error) { return true, nil },
-	}, "trackd", arguments["HOSTPORT"].(string))
+	}, "trackd", *hostport)
 }
 
 func handleRead(_ chan<- *baps3.Message, response chan<- *baps3.Message, t *TrackDB, args []string) (bool, error) {

@@ -23,16 +23,12 @@ type Track struct {
 }
 
 type TrackDB struct {
-	db      *sql.DB
-	pathFmt string
+	db       *sql.DB
+	resolver func(string, string) (string, error)
 }
 
-func NewTrackDB(db *sql.DB, pathFmt string) *TrackDB {
-	tdb := new(TrackDB)
-	tdb.db = db
-	tdb.pathFmt = pathFmt
-
-	return tdb
+func NewTrackDB(db *sql.DB, resolver func(string, string) (string, error)) *TrackDB {
+	return &TrackDB{db: db, resolver: resolver}
 }
 
 func (t *TrackDB) getTrackInfo(trackid uint64) (track Track, err error) {
@@ -80,7 +76,11 @@ func (t *TrackDB) LookupTrack(output chan<- *baps3.Message, trackres string) {
 		log.Fatal(err)
 	}
 
-	track.Path = fmt.Sprintf(t.pathFmt, track.RecordID, trackid)
+	path, err := t.resolver(strconv.Itoa(track.RecordID), trackres)
+	if err != nil {
+		log.Fatal(err)
+	}
+	track.Path = path
 
 	urlstub := fmt.Sprintf("/tracks/%d", trackid)
 	res := bsrv.ToResource("", track)
