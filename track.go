@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/UniversityRadioYork/baps3-go"
+	bsrv "github.com/UniversityRadioYork/bifrost-server"
 	_ "github.com/lib/pq"
 )
 
@@ -82,9 +83,9 @@ func (t *TrackDB) LookupTrack(output chan<- *baps3.Message, trackres string) {
 	track.Path = fmt.Sprintf(t.pathFmt, track.RecordID, trackid)
 
 	urlstub := fmt.Sprintf("/tracks/%d", trackid)
-	res := toResource("", track)
+	res := bsrv.ToResource("", track)
 	for _, r := range res {
-		emitRes(output, urlstub, r.rtype, r.path, r.value)
+		emitRes(output, urlstub, r.Type, r.Path, r.Value)
 	}
 }
 
