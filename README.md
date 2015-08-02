@@ -35,10 +35,11 @@ host and port and sending
 `read tag /tracks/trackid`
 
 where `trackid` is the ID of the track you wish to resolve in the URY (or
-MyRadio-compatible) track database, and ``
+MyRadio-compatible) track database, and `tag` is some arbitrary identifier
+used to identify which `ACK` (return status) corresponds to the `read`
+command later.
 
-The result of a successful query (for,
-say, track ID `456`) looks like:
+The result of a successful query (for, say, track ID `456`) looks like:
 
 ```
 RES /tracks/456 directory 7
