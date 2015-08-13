@@ -51,8 +51,8 @@ func main() {
 
 	log.Printf("listening on %s", *hostport)
 	tcpserver.Serve(request.Map{
-		baps3.RqRead: func(b, r chan<- *baps3.Message, s []string) (bool, error) { return handleRead(b, r, t, s) },
-		baps3.RqQuit: func(_, _ chan<- *baps3.Message, _ []string) (bool, error) { return true, nil },
+		baps3.RqRead:  func(b, r chan<- *baps3.Message, s []string) (bool, error) { return handleRead(b, r, t, s) },
+		baps3.RqWrite: func(b, r chan<- *baps3.Message, s []string) (bool, error) { return handleWrite(b, r, t, s) },
 	}, "trackd", *hostport)
 }
 
@@ -67,8 +67,26 @@ func handleRead(_ chan<- *baps3.Message, response chan<- *baps3.Message, t *Trac
 			return false, fmt.Errorf("FIXME: unknown read %q", resources)
 		}
 	} else {
-		// TODO: send failure here
 		return false, fmt.Errorf("FIXME: bad read %q", args)
+	}
+
+	return false, nil
+}
+
+func handleWrite(_ chan<- *baps3.Message, response chan<- *baps3.Message, t *TrackDB, args []string) (bool, error) {
+	// write TAG(ignored) PATH VALUE
+	if 3 == len(args) {
+		resources := strings.Split(strings.Trim(args[1], "/"), "/")
+		if len(resources) == 2 && resources[0] == "control" && resources[1] == "state" {
+			if strings.EqualFold(args[2], "Quitting") {
+				return true, nil
+			}
+			return false, fmt.Errorf("FIXME: unknown state %q", args[2])
+		} else {
+			return false, fmt.Errorf("FIXME: unknown write %q", resources)
+		}
+	} else {
+		return false, fmt.Errorf("FIXME: bad write %q", args)
 	}
 
 	return false, nil
