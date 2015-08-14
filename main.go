@@ -51,12 +51,14 @@ func main() {
 
 	log.Printf("listening on %s", *hostport)
 	tcpserver.Serve(request.Map{
-		baps3.RqRead:  func(b, r chan<- *baps3.Message, s []string) (bool, error) { return handleRead(b, r, t, s) },
-		baps3.RqWrite: func(b, r chan<- *baps3.Message, s []string) (bool, error) { return handleWrite(b, r, t, s) },
-	}, "trackd", *hostport)
+		baps3.RqRead:  handleRead,
+		baps3.RqWrite: handleWrite,
+	}, t, "trackd", *hostport)
 }
 
-func handleRead(_ chan<- *baps3.Message, response chan<- *baps3.Message, t *TrackDB, args []string) (bool, error) {
+func handleRead(_ chan<- *baps3.Message, response chan<- *baps3.Message, args []string, it interface{}) (bool, error) {
+	t := it.(*TrackDB)
+
 	// read TAG(ignored) PATH
 	if 2 == len(args) {
 		resources := strings.Split(strings.Trim(args[1], "/"), "/")
@@ -73,7 +75,7 @@ func handleRead(_ chan<- *baps3.Message, response chan<- *baps3.Message, t *Trac
 	return false, nil
 }
 
-func handleWrite(_ chan<- *baps3.Message, response chan<- *baps3.Message, t *TrackDB, args []string) (bool, error) {
+func handleWrite(_ chan<- *baps3.Message, response chan<- *baps3.Message, args []string, _ interface{}) (bool, error) {
 	// write TAG(ignored) PATH VALUE
 	if 3 == len(args) {
 		resources := strings.Split(strings.Trim(args[1], "/"), "/")
