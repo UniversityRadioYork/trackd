@@ -65,14 +65,12 @@ func handleRead(_ chan<- *baps3.Message, response chan<- *baps3.Message, args []
 		if len(resources) == 2 && resources[0] == "tracks" {
 			log.Printf("LOOKUP %q", resources[1])
 			t.LookupTrack(response, resources[1])
-		} else {
-			return false, fmt.Errorf("FIXME: unknown read %q", resources)
+			return false, nil
 		}
-	} else {
-		return false, fmt.Errorf("FIXME: bad read %q", args)
+		return false, fmt.Errorf("FIXME: unknown read %q", resources)
 	}
 
-	return false, nil
+	return false, fmt.Errorf("FIXME: bad read %q", args)
 }
 
 func handleWrite(_ chan<- *baps3.Message, response chan<- *baps3.Message, args []string, _ interface{}) (bool, error) {
@@ -84,12 +82,9 @@ func handleWrite(_ chan<- *baps3.Message, response chan<- *baps3.Message, args [
 				return true, nil
 			}
 			return false, fmt.Errorf("FIXME: unknown state %q", args[2])
-		} else {
-			return false, fmt.Errorf("FIXME: unknown write %q", resources)
 		}
-	} else {
-		return false, fmt.Errorf("FIXME: bad write %q", args)
+		return false, fmt.Errorf("FIXME: unknown write %q", resources)
 	}
 
-	return false, nil
+	return false, fmt.Errorf("FIXME: bad write %q", args)
 }

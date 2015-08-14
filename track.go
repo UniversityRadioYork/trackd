@@ -22,12 +22,20 @@ type Track struct {
 	RecentPlays  uint64 `res:"recent_plays"`
 }
 
+// Resolver is a type of function used to resolve track/record IDs.
+// It takes a trackID and recordID respectively, and returns the
+// resolved file path and/or an error.
+type Resolver func(string, string) (string, error)
+
+// TrackDB is a struct containing information on how to consult a URY/MyRadio
+// track database.
 type TrackDB struct {
 	db       *sql.DB
-	resolver func(string, string) (string, error)
+	resolver Resolver
 }
 
-func NewTrackDB(db *sql.DB, resolver func(string, string) (string, error)) *TrackDB {
+// NewTrackDB constructs a new TrackDB from a SQL handle and resolver hook.
+func NewTrackDB(db *sql.DB, resolver Resolver) *TrackDB {
 	return &TrackDB{db: db, resolver: resolver}
 }
 
@@ -65,6 +73,8 @@ func (t *TrackDB) getTrackRecentPlays(trackid uint64) (plays uint64, err error) 
 	return
 }
 
+// LookupTrack looks up a track given its resource name (track ID).
+// It sends Bifrost messages describing the track to output.
 func (t *TrackDB) LookupTrack(output chan<- *baps3.Message, trackres string) {
 	trackid, err := strconv.ParseUint(trackres, 10, 64)
 	if err != nil {

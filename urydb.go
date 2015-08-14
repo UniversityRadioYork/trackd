@@ -40,8 +40,6 @@ func getConnStringEnv() (connString string, err error) {
 }
 
 func getConnStringFile() (connString string, err error) {
-	connString = ""
-
 	for _, rawPath := range ConnFiles {
 		path := os.ExpandEnv(rawPath)
 		file, ferr := os.Open(path)
