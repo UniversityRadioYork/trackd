@@ -2,12 +2,9 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
-	"log"
 	"strconv"
 
 	"github.com/UniversityRadioYork/bifrost-go"
-	bsrv "github.com/UniversityRadioYork/bifrost-server"
 	_ "github.com/lib/pq"
 )
 
@@ -74,31 +71,23 @@ func (t *TrackDB) getTrackRecentPlays(trackid uint64) (plays uint64, err error) 
 }
 
 // LookupTrack looks up a track given its resource name (track ID).
-// It sends Bifrost messages describing the track to output.
-func (t *TrackDB) LookupTrack(output chan<- *bifrost.Message, trackres string) {
+// It returns Bifrost responses describing the track, rooted at prefix.
+func (t *TrackDB) LookupTrack(prefix []string, trackres string) ([]bifrost.Resource, error) {
 	trackid, err := strconv.ParseUint(trackres, 10, 64)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	track, err := t.getTrackInfo(trackid)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	path, err := t.resolver(strconv.Itoa(track.RecordID), trackres)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	track.Path = path
 
-	urlstub := fmt.Sprintf("/tracks/%d", trackid)
-	res := bsrv.ToResource("", track)
-	for _, r := range res {
-		emitRes(output, urlstub, r.Type, r.Path, r.Value)
-	}
-}
-
-func emitRes(output chan<- *bifrost.Message, urlstub string, restype string, resname string, resval string) {
-	output <- bifrost.NewMessage(bifrost.RsRes).AddArg(urlstub + resname).AddArg(restype).AddArg(resval)
+	return bifrost.ToResource(append(prefix, trackres), track), nil
 }
