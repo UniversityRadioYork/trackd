@@ -6,7 +6,7 @@ import (
 	"log"
 	"strconv"
 
-	"github.com/UniversityRadioYork/baps3-go"
+	"github.com/UniversityRadioYork/bifrost-go"
 	bsrv "github.com/UniversityRadioYork/bifrost-server"
 	_ "github.com/lib/pq"
 )
@@ -75,7 +75,7 @@ func (t *TrackDB) getTrackRecentPlays(trackid uint64) (plays uint64, err error) 
 
 // LookupTrack looks up a track given its resource name (track ID).
 // It sends Bifrost messages describing the track to output.
-func (t *TrackDB) LookupTrack(output chan<- *baps3.Message, trackres string) {
+func (t *TrackDB) LookupTrack(output chan<- *bifrost.Message, trackres string) {
 	trackid, err := strconv.ParseUint(trackres, 10, 64)
 	if err != nil {
 		log.Fatal(err)
@@ -99,6 +99,6 @@ func (t *TrackDB) LookupTrack(output chan<- *baps3.Message, trackres string) {
 	}
 }
 
-func emitRes(output chan<- *baps3.Message, urlstub string, restype string, resname string, resval string) {
-	output <- baps3.NewMessage(baps3.RsRes).AddArg(urlstub + resname).AddArg(restype).AddArg(resval)
+func emitRes(output chan<- *bifrost.Message, urlstub string, restype string, resname string, resval string) {
+	output <- bifrost.NewMessage(bifrost.RsRes).AddArg(urlstub + resname).AddArg(restype).AddArg(resval)
 }

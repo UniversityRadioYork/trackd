@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/UniversityRadioYork/baps3-go"
+	"github.com/UniversityRadioYork/bifrost-go"
 	"github.com/UniversityRadioYork/bifrost-server/request"
 	"github.com/UniversityRadioYork/bifrost-server/tcpserver"
 	//"github.com/docopt/docopt-go"
@@ -51,12 +51,12 @@ func main() {
 
 	log.Printf("listening on %s", *hostport)
 	tcpserver.Serve(request.Map{
-		baps3.RqRead:  handleRead,
-		baps3.RqWrite: handleWrite,
+		bifrost.RqRead:  handleRead,
+		bifrost.RqWrite: handleWrite,
 	}, t, "trackd", *hostport)
 }
 
-func handleRead(_ chan<- *baps3.Message, response chan<- *baps3.Message, args []string, it interface{}) (bool, error) {
+func handleRead(_ chan<- *bifrost.Message, response chan<- *bifrost.Message, args []string, it interface{}) (bool, error) {
 	t := it.(*TrackDB)
 
 	// read TAG(ignored) PATH
@@ -73,7 +73,7 @@ func handleRead(_ chan<- *baps3.Message, response chan<- *baps3.Message, args []
 	return false, fmt.Errorf("FIXME: bad read %q", args)
 }
 
-func handleWrite(_ chan<- *baps3.Message, response chan<- *baps3.Message, args []string, _ interface{}) (bool, error) {
+func handleWrite(_ chan<- *bifrost.Message, response chan<- *bifrost.Message, args []string, _ interface{}) (bool, error) {
 	// write TAG(ignored) PATH VALUE
 	if 3 == len(args) {
 		resources := strings.Split(strings.Trim(args[1], "/"), "/")
