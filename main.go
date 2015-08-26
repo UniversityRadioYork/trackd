@@ -54,7 +54,12 @@ func main() {
 		map[string]bifrost.ResourceNoder{
 			"control": bifrost.NewDirectoryResourceNode(
 				// TODO: put state here
-				map[string]bifrost.ResourceNoder{},
+				map[string]bifrost.ResourceNoder{
+					"state": &StateResourceNode{
+						state: "running",
+						stateChangeFn: func(x string) (string, error) { return "", fmt.Errorf("cannot change state to %q", x) },
+					},
+				},
 			),
 			"tracks": &TrackResourceNode{
 				trackdb: t,
@@ -67,6 +72,75 @@ func main() {
 		bifrost.RqRead:  handleRead,
 		bifrost.RqWrite: handleWrite,
 	}, rtree, "trackd", *hostport)
+}
+
+type StateResourceNode struct {
+	bifrost.ResourceNode
+
+	// TODO(CaptainHayashi): tighten this up?
+	state string
+
+	// Called when the state is changed to something other than quitting.
+	// Passed the new state verbatim -- please use strings.EqualFold etc. to compare.
+	// Return (new state, nil) if the state change is allowed; (_, error) otherwise.
+	stateChangeFn func(string) (string, error)
+}
+
+func (r *StateResourceNode) NRead(prefix, relpath []string) ([]bifrost.Resource, error) {
+	// We don't have any children (though eventually enums will be a thing?)
+	if len(relpath) != 0 {
+		return []bifrost.Resource{}, fmt.Errorf("state has no children, got %q", relpath)
+	}
+
+	return bifrost.ToResource(prefix, r.state), nil
+}
+func (r *StateResourceNode) NWrite(prefix, relpath []string, val bifrost.BifrostType) error {
+	log.Printf("trying to set state to %s", val)
+
+	if len(relpath) != 0 {
+		return fmt.Errorf("state has no children, got %q", relpath)
+	}
+
+	// TODO(CaptainHayashi): support more than strings here?
+	st, ok := val.(bifrost.BifrostTypeString)
+	if !ok {
+		return fmt.Errorf("state must be a string, got %q", val)
+	}
+	_, s := st.ResourceBody()
+
+	// Quitting is monotonic: once you've quit, you can't unquit.
+	if strings.EqualFold(r.state, "quitting") {
+		return fmt.Errorf("cannot change state, server is quitting")
+	}
+
+	// Don't allow changes from one state to itself.
+	if strings.EqualFold(r.state, s) {
+		return nil
+	}
+
+	// We handle quitting on our own.
+	news := "quitting"
+	var err error
+	if !strings.EqualFold(s, "quitting") {
+		news, err = r.stateChangeFn(s)
+		if err != nil {
+			return err
+		}
+	}
+
+	r.state = news
+	return nil
+}
+
+func (r *StateResourceNode) NDelete(prefix, relpath []string) error {
+	// Deleting = writing "quitting" by design.
+	// Since we can't write to children of a state node, this is sound.
+	return r.NWrite(prefix, relpath, bifrost.BifrostTypeString("quitting"))
+}
+
+func (r *StateResourceNode) NAdd(_, _ []string, _ bifrost.ResourceNoder) error {
+	// TODO(CaptainHayashi): correct error
+	return fmt.Errorf("can't add to state")
 }
 
 type TrackResourceNode struct {
@@ -126,17 +200,21 @@ func handleRead(_ chan<- *bifrost.Message, response chan<- *bifrost.Message, arg
 	return false, fmt.Errorf("FIXME: bad read %q", args)
 }
 
-func handleWrite(_ chan<- *bifrost.Message, response chan<- *bifrost.Message, args []string, _ interface{}) (bool, error) {
+func handleWrite(_ chan<- *bifrost.Message, response chan<- *bifrost.Message, args []string, it interface{}) (bool, error) {
+	t := it.(bifrost.ResourceNoder)
+
 	// write TAG(ignored) PATH VALUE
 	if 3 == len(args) {
-		resources := strings.Split(strings.Trim(args[1], "/"), "/")
-		if len(resources) == 2 && resources[0] == "control" && resources[1] == "state" {
-			if strings.EqualFold(args[2], "Quitting") {
-				return true, nil
-			}
-			return false, fmt.Errorf("FIXME: unknown state %q", args[2])
+		// TODO(CaptainHayashi): figuring out if the server has quit is very convoluted at the moment
+
+		res := bifrost.Write(t, args[1], args[2])
+		// TODO(CaptainHayashi): don't unpack this (as above)?
+		if res.Status.Code != bifrost.StatusOk {
+			return false, fmt.Errorf("fixme: %q", res.Status.String())
 		}
-		return false, fmt.Errorf("FIXME: unknown write %q", resources)
+
+		// Ugh... please fix this.
+		return args[1] == "/control/state" && strings.EqualFold(args[2], "quitting"), nil
 	}
 
 	return false, fmt.Errorf("FIXME: bad write %q", args)
