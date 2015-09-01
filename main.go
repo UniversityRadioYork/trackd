@@ -48,18 +48,13 @@ func main() {
 	}()
 
 	t := NewTrackDB(db, resolve)
+	s := NewStateResourceNode("running", func(x string) (string, error) { return "", fmt.Errorf("cannot change state to %q", x) })
 
 	// TODO(CaptainHayashi): factor this out?
 	rtree := bifrost.NewDirectoryResourceNode(
 		map[string]bifrost.ResourceNoder{
 			"control": bifrost.NewDirectoryResourceNode(
-				// TODO: put state here
-				map[string]bifrost.ResourceNoder{
-					"state": &StateResourceNode{
-						state: "running",
-						stateChangeFn: func(x string) (string, error) { return "", fmt.Errorf("cannot change state to %q", x) },
-					},
-				},
+				map[string]bifrost.ResourceNoder{ "state": s },
 			),
 			"tracks": &TrackResourceNode{
 				trackdb: t,
@@ -84,6 +79,12 @@ type StateResourceNode struct {
 	// Passed the new state verbatim -- please use strings.EqualFold etc. to compare.
 	// Return (new state, nil) if the state change is allowed; (_, error) otherwise.
 	stateChangeFn func(string) (string, error)
+}
+func NewStateResourceNode(initial string, stateChangeFn func(string) (string, error)) *StateResourceNode {
+	return &StateResourceNode{
+		state: initial,
+		stateChangeFn: stateChangeFn,
+	}
 }
 
 func (r *StateResourceNode) NRead(prefix, relpath []string) ([]bifrost.Resource, error) {
