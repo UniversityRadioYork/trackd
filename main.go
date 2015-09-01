@@ -48,7 +48,7 @@ func main() {
 	}()
 
 	t := NewTrackDB(db, resolve)
-	s := NewStateResourceNode("running", func(x string) (string, error) { return "", fmt.Errorf("cannot change state to %q", x) })
+	s := NewEnumResourceNode([]string{"running", "quitting"})
 
 	// TODO(CaptainHayashi): factor this out?
 	rtree := bifrost.NewDirectoryResourceNode(
@@ -69,37 +69,91 @@ func main() {
 	}, rtree, "trackd", *hostport)
 }
 
-type StateResourceNode struct {
+// EnumResourceNode is the type of resource nodes that can hold one of a fixed set of values.
+//
+// EnumResourceNodes are case-insensitive.
+//
+// EnumResourceNodes hold three parameters:
+// - `current`, which is the current value of the enum;
+// - `allowed`, which is the list of allowed values for this enum;
+// - `terminal`, which, if set to a value in `allowed`, will be the value to which the enum is set if deleted.
+//
+// EnumResourceNodes can be accessed using the resource API in the following ways:
+//
+// Read   /        -> Resource {current: /current, allowed: /allowed}
+// Read   /current -> Resource (current value as a string)
+// Read   /allowed -> Resource (allowed values as a directory indexed from 0 up)
+//
+// Write  /        -> As `Write /current`
+// Write  /current -> If payload is in /allowed, sets /current to payload.
+//                    Otherwise, throw error.
+// Write  /allowed -> *not allowed*.
+//
+// Delete /        -> *not allowed*.
+// Delete /current -> *not allowed*.
+// Delete /allowed -> *not allowed*.
+type EnumResourceNode struct {
 	bifrost.ResourceNode
-
-	// TODO(CaptainHayashi): tighten this up?
-	state string
-
-	// Called when the state is changed to something other than quitting.
-	// Passed the new state verbatim -- please use strings.EqualFold etc. to compare.
-	// Return (new state, nil) if the state change is allowed; (_, error) otherwise.
-	stateChangeFn func(string) (string, error)
+	
+	// These are exported mainly to make NRead able to use ToResource.
+	
+	// Current is the current state of the EnumResourceNode.
+	Current string   `res:current`
+	// Allowed is the set of allowed states of the EnumResourceNode.
+	Allowed []string `res:allowed`
 }
-func NewStateResourceNode(initial string, stateChangeFn func(string) (string, error)) *StateResourceNode {
-	return &StateResourceNode{
-		state: initial,
-		stateChangeFn: stateChangeFn,
+
+// NewEnumResourceNode creates a new EnumResourceNode.
+//
+// The node will have initial value `allowed[0]`.
+func NewEnumResourceNode(allowed []string) *EnumResourceNode {
+	return &EnumResourceNode{
+		Current: allowed[0],
+		Allowed: allowed,
 	}
 }
 
-func (r *StateResourceNode) NRead(prefix, relpath []string) ([]bifrost.Resource, error) {
-	// We don't have any children (though eventually enums will be a thing?)
-	if len(relpath) != 0 {
-		return []bifrost.Resource{}, fmt.Errorf("state has no children, got %q", relpath)
+func isCurrent(relpath []string) bool {
+	return len(relpath) == 1 && strings.EqualFold(relpath[0], "current")
+}
+
+func (r *EnumResourceNode) isAllowed(state string) bool {
+	for _, a := range(r.Allowed) {
+		if strings.EqualFold(state, a) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *EnumResourceNode) NRead(prefix, relpath []string) ([]bifrost.Resource, error) {
+	// Is this looking at the whole node?  If so, just send it as a resource.
+	if len(relpath) == 0 {
+		return bifrost.ToResource(prefix, r), nil
+	}
+	
+	// We have two (scalar-ish) children, so maybe this is trying to get one of those.
+	// But it'll be easier to knock out the error case first.
+	if len(relpath) != 1 {
+		return []bifrost.Resource{}, fmt.Errorf("can't find %q", relpath)
+	}
+	
+	// Which child is it?
+	if strings.EqualFold(relpath[0], "current") {
+		return bifrost.ToResource(prefix, r.Current), nil
+	}
+	if strings.EqualFold(relpath[0], "allowed") {
+		return bifrost.ToResource(prefix, r.Allowed), nil
 	}
 
-	return bifrost.ToResource(prefix, r.state), nil
+	return []bifrost.Resource{}, fmt.Errorf("can't find %q", relpath)
 }
-func (r *StateResourceNode) NWrite(prefix, relpath []string, val bifrost.BifrostType) error {
-	log.Printf("trying to set state to %s", val)
 
-	if len(relpath) != 0 {
-		return fmt.Errorf("state has no children, got %q", relpath)
+func (r *EnumResourceNode) NWrite(prefix, relpath []string, val bifrost.BifrostType) error {
+	// Trying to write to an enum is the same as trying to write to its current value.
+	// Nothing else can be written.
+	if !(len(relpath) == 0 || isCurrent(relpath)) {
+		return fmt.Errorf("can't write to %q", relpath)	
 	}
 
 	// TODO(CaptainHayashi): support more than strings here?
@@ -108,38 +162,22 @@ func (r *StateResourceNode) NWrite(prefix, relpath []string, val bifrost.Bifrost
 		return fmt.Errorf("state must be a string, got %q", val)
 	}
 	_, s := st.ResourceBody()
-
-	// Quitting is monotonic: once you've quit, you can't unquit.
-	if strings.EqualFold(r.state, "quitting") {
-		return fmt.Errorf("cannot change state, server is quitting")
+	
+	if !r.isAllowed(s) {
+		return fmt.Errorf("%s is not an allowed state", s)
 	}
 
-	// Don't allow changes from one state to itself.
-	if strings.EqualFold(r.state, s) {
-		return nil
-	}
-
-	// We handle quitting on our own.
-	news := "quitting"
-	var err error
-	if !strings.EqualFold(s, "quitting") {
-		news, err = r.stateChangeFn(s)
-		if err != nil {
-			return err
-		}
-	}
-
-	r.state = news
+	r.Current = s
 	return nil
 }
 
-func (r *StateResourceNode) NDelete(prefix, relpath []string) error {
+func (r *EnumResourceNode) NDelete(prefix, relpath []string) error {
 	// Deleting = writing "quitting" by design.
 	// Since we can't write to children of a state node, this is sound.
 	return r.NWrite(prefix, relpath, bifrost.BifrostTypeString("quitting"))
 }
 
-func (r *StateResourceNode) NAdd(_, _ []string, _ bifrost.ResourceNoder) error {
+func (r *EnumResourceNode) NAdd(_, _ []string, _ bifrost.ResourceNoder) error {
 	// TODO(CaptainHayashi): correct error
 	return fmt.Errorf("can't add to state")
 }
