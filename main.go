@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/UniversityRadioYork/bifrost-go"
-	"github.com/UniversityRadioYork/bifrost-server/request"
 	"github.com/UniversityRadioYork/bifrost-server/tcpserver"
 	//"github.com/docopt/docopt-go"
 	_ "github.com/lib/pq"
@@ -63,10 +62,9 @@ func main() {
 	)
 
 	log.Printf("listening on %s", *hostport)
-	tcpserver.Serve(request.Map{
-		bifrost.RqRead:  handleRead,
-		bifrost.RqWrite: handleWrite,
-	}, rtree, "trackd", *hostport)
+	
+	td := tcpserver.New("trackd", *hostport, rtree)
+	td.AddHandler(bifrost.RqRead, handleRead).AddHandler(bifrost.RqWrite, handleWrite).Serve()
 }
 
 // EnumResourceNode is the type of resource nodes that can hold one of a fixed set of values.
