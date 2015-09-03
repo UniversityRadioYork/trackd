@@ -10,6 +10,7 @@ import (
 
 	"github.com/UniversityRadioYork/bifrost-go"
 	"github.com/UniversityRadioYork/bifrost-server/tcpserver"
+	"github.com/UniversityRadioYork/urydb-go"
 	//"github.com/docopt/docopt-go"
 	_ "github.com/lib/pq"
 )
@@ -37,7 +38,7 @@ func main() {
 
 	log.Printf("example resolve: %s recordid trackid -> %s", *resolver, sample)
 
-	db, err := getDB()
+	db, err := urydb.GetDB()
 	if err != nil {
 		log.Fatal(err)
 	}
