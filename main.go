@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/UniversityRadioYork/bifrost-go"
@@ -53,7 +54,7 @@ func main() {
 	rtree := bifrost.NewDirectoryResourceNode(
 		map[string]bifrost.ResourceNoder{
 			"control": bifrost.NewDirectoryResourceNode(
-				map[string]bifrost.ResourceNoder{ "state": s },
+				map[string]bifrost.ResourceNoder{"state": s},
 			),
 			"tracks": &TrackResourceNode{
 				trackdb: t,
@@ -62,7 +63,7 @@ func main() {
 	)
 
 	log.Printf("listening on %s", *hostport)
-	
+
 	td := tcpserver.New("trackd", *hostport, rtree)
 	td.AddHandler(bifrost.RqRead, handleRead).AddHandler(bifrost.RqWrite, handleWrite).Serve()
 }
@@ -92,13 +93,13 @@ func main() {
 // Delete /allowed -> *not allowed*.
 type EnumResourceNode struct {
 	bifrost.ResourceNode
-	
+
 	// These are exported mainly to make NRead able to use ToResource.
-	
+
 	// Current is the current state of the EnumResourceNode.
-	Current string   `res:current`
+	Current string `res:"current"`
 	// Allowed is the set of allowed states of the EnumResourceNode.
-	Allowed []string `res:allowed`
+	Allowed []string `res:"allowed"`
 }
 
 // NewEnumResourceNode creates a new EnumResourceNode.
@@ -116,7 +117,7 @@ func isCurrent(relpath []string) bool {
 }
 
 func (r *EnumResourceNode) isAllowed(state string) bool {
-	for _, a := range(r.Allowed) {
+	for _, a := range r.Allowed {
 		if strings.EqualFold(state, a) {
 			return true
 		}
@@ -124,34 +125,39 @@ func (r *EnumResourceNode) isAllowed(state string) bool {
 	return false
 }
 
-func (r *EnumResourceNode) NRead(prefix, relpath []string) ([]bifrost.Resource, error) {
-	// Is this looking at the whole node?  If so, just send it as a resource.
+func (r *EnumResourceNode) NRead(prefix, relpath []string) (bifrost.ResourceNoder, error) {
+	// Is this looking at the whole node?  If so, just send it,
 	if len(relpath) == 0 {
-		return bifrost.ToResource(prefix, r), nil
+		return r, nil
 	}
-	
+
 	// We have two (scalar-ish) children, so maybe this is trying to get one of those.
 	// But it'll be easier to knock out the error case first.
 	if len(relpath) != 1 {
-		return []bifrost.Resource{}, fmt.Errorf("can't find %q", relpath)
-	}
-	
-	// Which child is it?
-	if strings.EqualFold(relpath[0], "current") {
-		return bifrost.ToResource(prefix, r.Current), nil
-	}
-	if strings.EqualFold(relpath[0], "allowed") {
-		return bifrost.ToResource(prefix, r.Allowed), nil
+		return nil, fmt.Errorf("can't find %q", relpath)
 	}
 
-	return []bifrost.Resource{}, fmt.Errorf("can't find %q", relpath)
+	// Which child is it?
+	if strings.EqualFold(relpath[0], "current") {
+		return bifrost.NewEntryResourceNode(bifrost.BifrostTypeString(r.Current)), nil
+	}
+	if strings.EqualFold(relpath[0], "allowed") {
+		// TODO(CaptainHayashi): automate?
+		dir := bifrost.DirectoryResourceNode{}
+		for ix, a := range r.Allowed {
+			dir[strconv.Itoa(ix)] = bifrost.NewEntryResourceNode(bifrost.BifrostTypeString(a))
+		}
+		return dir, nil
+	}
+
+	return nil, fmt.Errorf("can't find %q", relpath)
 }
 
 func (r *EnumResourceNode) NWrite(prefix, relpath []string, val bifrost.BifrostType) error {
 	// Trying to write to an enum is the same as trying to write to its current value.
 	// Nothing else can be written.
 	if !(len(relpath) == 0 || isCurrent(relpath)) {
-		return fmt.Errorf("can't write to %q", relpath)	
+		return fmt.Errorf("can't write to %q", relpath)
 	}
 
 	// TODO(CaptainHayashi): support more than strings here?
@@ -160,7 +166,7 @@ func (r *EnumResourceNode) NWrite(prefix, relpath []string, val bifrost.BifrostT
 		return fmt.Errorf("state must be a string, got %q", val)
 	}
 	_, s := st.ResourceBody()
-	
+
 	if !r.isAllowed(s) {
 		return fmt.Errorf("%s is not an allowed state", s)
 	}
@@ -186,17 +192,17 @@ type TrackResourceNode struct {
 	trackdb *TrackDB
 }
 
-func (r *TrackResourceNode) NRead(prefix, relpath []string) ([]bifrost.Resource, error) {
+func (r *TrackResourceNode) NRead(prefix, relpath []string) (bifrost.ResourceNoder, error) {
 	// Is this about us, or one of our children?
 	if len(relpath) == 0 {
 		// TODO(CaptainHayashi): This should be something else.
 		// Like, maybe, a Query?
-		return bifrost.ToResource(prefix, struct{}{}), nil
+		return bifrost.DirectoryResourceNode{}, nil
 	}
 	// We're expecting relpath to contain the trackID and nothing else.
 	// Bail out if this isn't the case.
 	if len(relpath) != 1 {
-		return []bifrost.Resource{}, fmt.Errorf("expected only one child, got %q", relpath)
+		return nil, fmt.Errorf("expected only one child, got %q", relpath)
 	}
 	return r.trackdb.LookupTrack(prefix, relpath[0])
 }
@@ -227,7 +233,7 @@ func handleRead(_ chan<- *bifrost.Message, response chan<- *bifrost.Message, arg
 		if res.Status.Code != bifrost.StatusOk {
 			return false, fmt.Errorf("fixme: %q", res.Status.String())
 		}
-		for _, r := range res.Resources {
+		for _, r := range bifrost.ToResource(res.Path, res.Node) {
 			response <- r.Message(args[0])
 		}
 

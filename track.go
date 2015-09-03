@@ -72,7 +72,7 @@ func (t *TrackDB) getTrackRecentPlays(trackid uint64) (plays uint64, err error) 
 
 // LookupTrack looks up a track given its resource name (track ID).
 // It returns Bifrost responses describing the track, rooted at prefix.
-func (t *TrackDB) LookupTrack(prefix []string, trackres string) ([]bifrost.Resource, error) {
+func (t *TrackDB) LookupTrack(prefix []string, trackres string) (bifrost.ResourceNoder, error) {
 	trackid, err := strconv.ParseUint(trackres, 10, 64)
 	if err != nil {
 		return nil, err
@@ -89,5 +89,5 @@ func (t *TrackDB) LookupTrack(prefix []string, trackres string) ([]bifrost.Resou
 	}
 	track.Path = path
 
-	return bifrost.ToResource(append(prefix, trackres), track), nil
+	return bifrost.ToNode(track), nil
 }
